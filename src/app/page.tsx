@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export default function Home() {
   // 入力値の状態管理
@@ -27,6 +27,9 @@ export default function Home() {
   const [fuelCost, setFuelCost] = useState<number | null>(null);
   const [totalCost, setTotalCost] = useState<number | null>(null);
   const [costPerPerson, setCostPerPerson] = useState<number | null>(null);
+
+  // 計算結果セクションへのスクロール用ref
+  const resultRef = useRef<HTMLDivElement>(null);
 
   // 経路を追加する処理
   const addRoute = () => {
@@ -192,6 +195,11 @@ export default function Home() {
     setTotalParkingFee(totalParkingFeeNum);
     setTotalCost(Math.round(totalCostWithAll * 10) / 10);
     setCostPerPerson(Math.round(costPer * 10) / 10);
+
+    // 計算結果が表示されたらその位置にスクロール
+    setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
   };
 
   // リセットボタンがクリックされた時の処理
@@ -483,7 +491,7 @@ export default function Home() {
 
           {/* 計算結果 */}
           {totalDistance !== null && fuelPerKm !== null && fuelCost !== null && totalTollFee !== null && totalParkingFee !== null && totalCost !== null && costPerPerson !== null && (
-            <div className="mt-8 p-6 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+            <div ref={resultRef} className="mt-8 p-6 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
               <h2 className="text-lg font-semibold text-blue-800 dark:text-blue-300 mb-4">
                 計算結果
               </h2>
