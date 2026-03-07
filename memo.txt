@@ -1,0 +1,13 @@
+
+http://localhost:3000/
+
+git
+https://github.com/armoni-dev/mileage-calculator
+
+vercel
+https://vercel.com/armoni-dev/mileage-calculator
+
+web
+https://mileage-calculator-gamma.vercel.app/
+
+https://mileage-calculator-a8mwzsahe-armoni-dev.vercel.app/

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
   // 入力値の状態管理
@@ -10,7 +10,7 @@ export default function Home() {
   const [routes, setRoutes] = useState<string[]>([""]);
   const [tollFees, setTollFees] = useState<string[]>([""]);
   const [parkingFees, setParkingFees] = useState<string[]>([""]);
-  const [others, setOthers] = useState<{name: string, amount: string}[]>([{name: "", amount: ""}]);
+  const [others, setOthers] = useState<{ name: string, amount: string }[]>([{ name: "", amount: "" }]);
 
   // エラーメッセージの状態管理
   const [errors, setErrors] = useState<{
@@ -26,13 +26,33 @@ export default function Home() {
   const [totalTollFee, setTotalTollFee] = useState<number | null>(null);
   const [totalParkingFee, setTotalParkingFee] = useState<number | null>(null);
   const [totalOthersFee, setTotalOthersFee] = useState<number | null>(null);
-  const [calculatedOthers, setCalculatedOthers] = useState<{name: string, amount: number}[]>([]);
+  const [calculatedOthers, setCalculatedOthers] = useState<{ name: string, amount: number }[]>([]);
   const [fuelCost, setFuelCost] = useState<number | null>(null);
   const [totalCost, setTotalCost] = useState<number | null>(null);
   const [costPerPerson, setCostPerPerson] = useState<number | null>(null);
 
   // 計算結果セクションへのスクロール用ref
   const resultRef = useRef<HTMLDivElement>(null);
+
+  // 初回読み込み時にURLパラメータから値を復元
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const data = params.get("data");
+    if (data) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(atob(data)));
+        if (parsed.gasPrice !== undefined) setGasPrice(parsed.gasPrice);
+        if (parsed.fuelEfficiency !== undefined) setFuelEfficiency(parsed.fuelEfficiency);
+        if (parsed.passengers !== undefined) setPassengers(parsed.passengers);
+        if (parsed.routes && parsed.routes.length > 0) setRoutes(parsed.routes);
+        if (parsed.tollFees && parsed.tollFees.length > 0) setTollFees(parsed.tollFees);
+        if (parsed.parkingFees && parsed.parkingFees.length > 0) setParkingFees(parsed.parkingFees);
+        if (parsed.others && parsed.others.length > 0) setOthers(parsed.others);
+      } catch (e) {
+        console.error("Failed to parse URL params", e);
+      }
+    }
+  }, []);
 
   // 経路を追加する処理
   const addRoute = () => {
@@ -156,14 +176,14 @@ export default function Home() {
     const routeErrors: (string | undefined)[] = [];
     let hasValidRoute = false;
     let totalDistanceNum = 0;
-    
+
     for (let i = 0; i < routes.length; i++) {
       // 走行距離2以降は空欄を許容
       if (i >= 1 && routes[i] === "") {
         routeErrors[i] = undefined;
         continue;
       }
-      
+
       const distance = parseFloat(routes[i]);
       if (routes[i] === "" || isNaN(distance)) {
         routeErrors[i] = "有効な数値を入力してください";
@@ -210,7 +230,7 @@ export default function Home() {
     }
     // その他（任意入力なのでデフォルト0）
     let totalOthersFeeNum = 0;
-    const validOthers: {name: string, amount: number}[] = [];
+    const validOthers: { name: string, amount: number }[] = [];
     for (let i = 0; i < others.length; i++) {
       const other = others[i];
       const otherNum = other.amount === "" || isNaN(parseFloat(other.amount)) ? 0 : parseFloat(other.amount);
@@ -235,6 +255,25 @@ export default function Home() {
     setTotalCost(Math.round(totalCostWithAll * 10) / 10);
     setCostPerPerson(Math.round(costPer * 10) / 10);
 
+    // 入力値をURLに保存
+    try {
+      const stateData = {
+        gasPrice,
+        fuelEfficiency,
+        passengers,
+        routes,
+        tollFees,
+        parkingFees,
+        others
+      };
+      const encoded = btoa(encodeURIComponent(JSON.stringify(stateData)));
+      const url = new URL(window.location.href);
+      url.searchParams.set("data", encoded);
+      window.history.replaceState({}, "", url.toString());
+    } catch (e) {
+      console.error("Failed to save URL params", e);
+    }
+
     // 計算結果が表示されたらその位置にスクロール
     setTimeout(() => {
       resultRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -243,6 +282,13 @@ export default function Home() {
 
   // リセットボタンがクリックされた時の処理
   const handleReset = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("data");
+      window.history.replaceState({}, "", url.toString());
+    } catch (e) {
+      console.error("Failed to clear URL params", e);
+    }
     setGasPrice("");
     setFuelEfficiency("");
     setPassengers("");
@@ -290,11 +336,10 @@ export default function Home() {
                     }
                   }}
                   placeholder="例: 150"
-                  className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${
-                    errors.gasPrice
+                  className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${errors.gasPrice
                       ? "border-red-500 focus:ring-red-500"
                       : "border-gray-300 dark:border-gray-600 focus:ring-blue-500"
-                  }`}
+                    }`}
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
                   円
@@ -323,11 +368,10 @@ export default function Home() {
                     }
                   }}
                   placeholder="例: 15.0"
-                  className={`w-full px-4 py-2 pr-16 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${
-                    errors.fuelEfficiency
+                  className={`w-full px-4 py-2 pr-16 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${errors.fuelEfficiency
                       ? "border-red-500 focus:ring-red-500"
                       : "border-gray-300 dark:border-gray-600 focus:ring-blue-500"
-                  }`}
+                    }`}
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
                   km/L
@@ -356,11 +400,10 @@ export default function Home() {
                     }
                   }}
                   placeholder="例: 2"
-                  className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${
-                    errors.passengers
+                  className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${errors.passengers
                       ? "border-red-500 focus:ring-red-500"
                       : "border-gray-300 dark:border-gray-600 focus:ring-blue-500"
-                  }`}
+                    }`}
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
                   人
@@ -394,11 +437,10 @@ export default function Home() {
                           }
                         }}
                         placeholder="例: 50"
-                        className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${
-                          errors.routes && errors.routes[index]
+                        className={`w-full px-4 py-2 pr-12 border rounded-md focus:outline-none focus:ring-2 dark:bg-zinc-800 dark:text-white ${errors.routes && errors.routes[index]
                             ? "border-red-500 focus:ring-red-500"
                             : "border-gray-300 dark:border-gray-600 focus:ring-blue-500"
-                        }`}
+                          }`}
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
                         km
@@ -617,11 +659,11 @@ export default function Home() {
                   </div>
                 ))}
                 <div className="flex justify-between border-t pt-3">
-                  <span className="text-gray-700 dark:text-gray-300">総交通費</span>
+                  <span className="text-gray-700 dark:text-gray-300">合計金額</span>
                   <span className="font-bold text-blue-700 dark:text-blue-400">{totalCost.toLocaleString()} 円</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-700 dark:text-gray-300">1人あたりの交通費</span>
+                  <span className="text-gray-700 dark:text-gray-300">1人あたりの金額</span>
                   <span className="font-bold text-green-600 dark:text-green-400">{costPerPerson.toLocaleString()} 円</span>
                 </div>
                 <div className="flex justify-between border-t pt-3">
