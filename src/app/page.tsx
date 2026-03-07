@@ -10,6 +10,7 @@ export default function Home() {
   const [routes, setRoutes] = useState<string[]>([""]);
   const [tollFees, setTollFees] = useState<string[]>([""]);
   const [parkingFees, setParkingFees] = useState<string[]>([""]);
+  const [others, setOthers] = useState<{name: string, amount: string}[]>([{name: "", amount: ""}]);
 
   // エラーメッセージの状態管理
   const [errors, setErrors] = useState<{
@@ -24,6 +25,8 @@ export default function Home() {
   const [fuelPerKm, setFuelPerKm] = useState<number | null>(null);
   const [totalTollFee, setTotalTollFee] = useState<number | null>(null);
   const [totalParkingFee, setTotalParkingFee] = useState<number | null>(null);
+  const [totalOthersFee, setTotalOthersFee] = useState<number | null>(null);
+  const [calculatedOthers, setCalculatedOthers] = useState<{name: string, amount: number}[]>([]);
   const [fuelCost, setFuelCost] = useState<number | null>(null);
   const [totalCost, setTotalCost] = useState<number | null>(null);
   const [costPerPerson, setCostPerPerson] = useState<number | null>(null);
@@ -89,6 +92,26 @@ export default function Home() {
     const newParkingFees = [...parkingFees];
     newParkingFees[index] = value;
     setParkingFees(newParkingFees);
+  };
+
+  // その他を追加する処理
+  const addOther = () => {
+    setOthers([...others, { name: "", amount: "" }]);
+  };
+
+  // その他を削除する処理
+  const removeOther = (index: number) => {
+    if (others.length > 1) {
+      const newOthers = others.filter((_, i) => i !== index);
+      setOthers(newOthers);
+    }
+  };
+
+  // その他を更新する処理
+  const updateOther = (index: number, field: 'name' | 'amount', value: string) => {
+    const newOthers = [...others];
+    newOthers[index] = { ...newOthers[index], [field]: value };
+    setOthers(newOthers);
   };
 
   // 計算ボタンがクリックされた時の処理
@@ -185,7 +208,21 @@ export default function Home() {
       const parkingFeeNum = parkingFee === "" || isNaN(parseFloat(parkingFee)) ? 0 : parseFloat(parkingFee);
       totalParkingFeeNum += parkingFeeNum;
     }
-    const totalCostWithAll = cost + totalTollFeeNum + totalParkingFeeNum;
+    // その他（任意入力なのでデフォルト0）
+    let totalOthersFeeNum = 0;
+    const validOthers: {name: string, amount: number}[] = [];
+    for (let i = 0; i < others.length; i++) {
+      const other = others[i];
+      const otherNum = other.amount === "" || isNaN(parseFloat(other.amount)) ? 0 : parseFloat(other.amount);
+      if (otherNum > 0 || other.name !== "") {
+        validOthers.push({
+          name: other.name || `その他 ${i + 1}`,
+          amount: otherNum
+        });
+      }
+      totalOthersFeeNum += otherNum;
+    }
+    const totalCostWithAll = cost + totalTollFeeNum + totalParkingFeeNum + totalOthersFeeNum;
     const costPer = totalCostWithAll / passengersNum;
 
     setTotalDistance(Math.round(totalDistanceNum * 10) / 10);
@@ -193,6 +230,8 @@ export default function Home() {
     setFuelCost(Math.round(cost * 10) / 10);
     setTotalTollFee(totalTollFeeNum);
     setTotalParkingFee(totalParkingFeeNum);
+    setTotalOthersFee(totalOthersFeeNum);
+    setCalculatedOthers(validOthers);
     setTotalCost(Math.round(totalCostWithAll * 10) / 10);
     setCostPerPerson(Math.round(costPer * 10) / 10);
 
@@ -210,12 +249,15 @@ export default function Home() {
     setRoutes([""]);
     setTollFees([""]);
     setParkingFees([""]);
+    setOthers([{ name: "", amount: "" }]);
     setErrors({});
     setTotalDistance(null);
     setFuelPerKm(null);
     setFuelCost(null);
     setTotalTollFee(null);
     setTotalParkingFee(null);
+    setTotalOthersFee(null);
+    setCalculatedOthers([]);
     setTotalCost(null);
     setCostPerPerson(null);
   };
@@ -471,6 +513,58 @@ export default function Home() {
             >
               駐車料金を追加
             </button>
+
+            {/* その他 */}
+            <div className="space-y-4">
+              {others.map((other, index) => (
+                <div key={index} className="grid grid-cols-1 gap-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    その他 {index + 1}
+                  </label>
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="relative w-full sm:flex-1">
+                      <input
+                        type="text"
+                        value={other.name}
+                        onChange={(e) => updateOther(index, 'name', e.target.value)}
+                        placeholder="項目名 (例: レンタカー代)"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-zinc-800 dark:text-white"
+                      />
+                    </div>
+                    <div className="relative w-full sm:flex-1">
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={other.amount}
+                        onChange={(e) => updateOther(index, 'amount', e.target.value)}
+                        placeholder="金額 (例: 5000)"
+                        className="w-full px-4 py-2 pr-12 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-zinc-800 dark:text-white"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                        円
+                      </span>
+                    </div>
+                    {others.length > 1 && (
+                      <button
+                        onClick={() => removeOther(index)}
+                        className="w-full sm:w-auto px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+                      >
+                        削除
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* その他を追加ボタン */}
+            <button
+              onClick={addOther}
+              className="w-full px-6 py-3 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:ring-2 focus:ring-green-500 transition-colors"
+            >
+              その他を追加
+            </button>
           </div>
 
           {/* ボタン */}
@@ -490,7 +584,7 @@ export default function Home() {
           </div>
 
           {/* 計算結果 */}
-          {totalDistance !== null && fuelPerKm !== null && fuelCost !== null && totalTollFee !== null && totalParkingFee !== null && totalCost !== null && costPerPerson !== null && (
+          {totalDistance !== null && fuelPerKm !== null && fuelCost !== null && totalTollFee !== null && totalParkingFee !== null && totalOthersFee !== null && totalCost !== null && costPerPerson !== null && (
             <div ref={resultRef} className="mt-8 p-6 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
               <h2 className="text-lg font-semibold text-blue-800 dark:text-blue-300 mb-4">
                 計算結果
@@ -516,6 +610,12 @@ export default function Home() {
                   <span className="text-gray-700 dark:text-gray-300">駐車料金</span>
                   <span className="font-semibold text-gray-900 dark:text-white">{totalParkingFee.toLocaleString()} 円</span>
                 </div>
+                {calculatedOthers.map((item, index) => (
+                  <div key={index} className="flex justify-between">
+                    <span className="text-gray-700 dark:text-gray-300">{item.name}</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">{item.amount.toLocaleString()} 円</span>
+                  </div>
+                ))}
                 <div className="flex justify-between border-t pt-3">
                   <span className="text-gray-700 dark:text-gray-300">総交通費</span>
                   <span className="font-bold text-blue-700 dark:text-blue-400">{totalCost.toLocaleString()} 円</span>
