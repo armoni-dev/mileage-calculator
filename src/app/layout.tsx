@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google"; // 👈 GA4用のインポートを追加
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,12 +23,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // GA ID を直接指定
+  const gaId = "G-69W5NFMGPJ";
+
   return (
-    <html lang="en">
+    <html lang="ja">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+
+        {/* 👈 bodyの閉じタグ直前に配置（IDが存在する場合のみ読み込みます） */}
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

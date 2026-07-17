@@ -34,20 +34,97 @@ export default function Home() {
   // 計算結果セクションへのスクロール用ref
   const resultRef = useRef<HTMLDivElement>(null);
 
-  // 初回読み込み時にURLパラメータから値を復元
+  // 初回読み込み時にURLパラメータから値を復元し、自動計算してスクロール
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const data = params.get("data");
     if (data) {
       try {
         const parsed = JSON.parse(decodeURIComponent(atob(data)));
-        if (parsed.gasPrice !== undefined) setGasPrice(parsed.gasPrice);
-        if (parsed.fuelEfficiency !== undefined) setFuelEfficiency(parsed.fuelEfficiency);
-        if (parsed.passengers !== undefined) setPassengers(parsed.passengers);
-        if (parsed.routes && parsed.routes.length > 0) setRoutes(parsed.routes);
-        if (parsed.tollFees && parsed.tollFees.length > 0) setTollFees(parsed.tollFees);
-        if (parsed.parkingFees && parsed.parkingFees.length > 0) setParkingFees(parsed.parkingFees);
-        if (parsed.others && parsed.others.length > 0) setOthers(parsed.others);
+        
+        const gasPriceVal = parsed.gasPrice !== undefined ? parsed.gasPrice : "";
+        const fuelEfficiencyVal = parsed.fuelEfficiency !== undefined ? parsed.fuelEfficiency : "";
+        const passengersVal = parsed.passengers !== undefined ? parsed.passengers : "";
+        const routesVal = parsed.routes && parsed.routes.length > 0 ? parsed.routes : [""];
+        const tollFeesVal = parsed.tollFees && parsed.tollFees.length > 0 ? parsed.tollFees : [""];
+        const parkingFeesVal = parsed.parkingFees && parsed.parkingFees.length > 0 ? parsed.parkingFees : [""];
+        const othersVal = parsed.others && parsed.others.length > 0 ? parsed.others : [{ name: "", amount: "" }];
+
+        setGasPrice(gasPriceVal);
+        setFuelEfficiency(fuelEfficiencyVal);
+        setPassengers(passengersVal);
+        setRoutes(routesVal);
+        setTollFees(tollFeesVal);
+        setParkingFees(parkingFeesVal);
+        setOthers(othersVal);
+
+        // 復元データを用いて自動計算を実行
+        const gasPriceNum = parseFloat(gasPriceVal);
+        const fuelEfficiencyNum = parseFloat(fuelEfficiencyVal);
+        const passengersNum = parseInt(passengersVal);
+
+        if (
+          !isNaN(gasPriceNum) && gasPriceNum > 0 &&
+          !isNaN(fuelEfficiencyNum) && fuelEfficiencyNum > 0 &&
+          !isNaN(passengersNum) && passengersNum >= 1
+        ) {
+          let totalDistanceNum = 0;
+          for (const route of routesVal) {
+            const distance = parseFloat(route);
+            totalDistanceNum += isNaN(distance) ? 0 : distance;
+          }
+
+          if (totalDistanceNum > 0) {
+            const fuel = totalDistanceNum / fuelEfficiencyNum;
+            const cost = fuel * gasPriceNum;
+            const fuelPerKmNum = gasPriceNum / fuelEfficiencyNum;
+
+            let totalTollFeeNum = 0;
+            for (const tollFee of tollFeesVal) {
+              totalTollFeeNum += tollFee === "" || isNaN(parseFloat(tollFee)) ? 0 : parseFloat(tollFee);
+            }
+
+            let totalParkingFeeNum = 0;
+            for (const parkingFee of parkingFeesVal) {
+              totalParkingFeeNum += parkingFee === "" || isNaN(parseFloat(parkingFee)) ? 0 : parseFloat(parkingFee);
+            }
+
+            let totalOthersFeeNum = 0;
+            const validOthers: { name: string, amount: number }[] = [];
+            for (let i = 0; i < othersVal.length; i++) {
+              const other = othersVal[i];
+              const otherNum = other.amount === "" || isNaN(parseFloat(other.amount)) ? 0 : parseFloat(other.amount);
+              if (otherNum > 0 || other.name !== "") {
+                validOthers.push({
+                  name: other.name || `その他 ${i + 1}`,
+                  amount: otherNum
+                });
+              }
+              totalOthersFeeNum += otherNum;
+            }
+
+            const totalCostWithAll = cost + totalTollFeeNum + totalParkingFeeNum + totalOthersFeeNum;
+            const costPer = totalCostWithAll / passengersNum;
+
+            setTotalDistance(Math.round(totalDistanceNum * 10) / 10);
+            setFuelPerKm(Math.round(fuelPerKmNum * 10) / 10);
+            setFuelCost(Math.round(cost * 10) / 10);
+            setTotalTollFee(totalTollFeeNum);
+            setTotalParkingFee(totalParkingFeeNum);
+            setTotalOthersFee(totalOthersFeeNum);
+            setCalculatedOthers(validOthers);
+            setTotalCost(Math.round(totalCostWithAll * 10) / 10);
+            setCostPerPerson(Math.round(costPer * 10) / 10);
+
+            // 計算結果の要素がマウントされて表示されるのを少し待ってからスクロール
+            setTimeout(() => {
+              const el = document.getElementById("calculation-result-section");
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth" });
+              }
+            }, 300);
+          }
+        }
       } catch (e) {
         console.error("Failed to parse URL params", e);
       }
@@ -134,8 +211,21 @@ export default function Home() {
     setOthers(newOthers);
   };
 
+  // GA4にイベントを送信する関数
+  const sendGAEvent = (eventName: string, params?: Record<string, string | number>) => {
+    if (typeof window !== "undefined" && (window as any).gtag) {
+      (window as any).gtag("event", eventName, params);
+    }
+  };
+
   // 計算ボタンがクリックされた時の処理
   const handleCalculate = () => {
+    // GA4にイベントを送信
+    sendGAEvent("calculate_button_click", {
+      event_category: "engagement",
+      event_label: "計算するボタン"
+    });
+
     // エラーをリセット
     setErrors({});
 
@@ -306,6 +396,36 @@ export default function Home() {
     setCalculatedOthers([]);
     setTotalCost(null);
     setCostPerPerson(null);
+  };
+
+  // LINEで共有する処理
+  const handleLineShare = () => {
+    // GA4にイベントを送信
+    sendGAEvent("line_share_button_click", {
+      event_category: "engagement",
+      event_label: "LINEで共有するボタン"
+    });
+
+    try {
+      const stateData = {
+        gasPrice,
+        fuelEfficiency,
+        passengers,
+        routes,
+        tollFees,
+        parkingFees,
+        others
+      };
+      const encoded = btoa(encodeURIComponent(JSON.stringify(stateData)));
+      const url = new URL(window.location.href);
+      url.searchParams.set("data", encoded);
+
+      const message = `交通費の計算結果\n合計金額: ${totalCost?.toLocaleString()}円\n1人あたり: ${costPerPerson?.toLocaleString()}円\n\n入力データと計算結果を開く:\n${url.toString()}`;
+      const lineUrl = `https://line.me/R/share?text=${encodeURIComponent(message)}`;
+      window.open(lineUrl, "_blank");
+    } catch (e) {
+      console.error("Failed to share on LINE", e);
+    }
   };
 
   return (
@@ -627,7 +747,7 @@ export default function Home() {
 
           {/* 計算結果 */}
           {totalDistance !== null && fuelPerKm !== null && fuelCost !== null && totalTollFee !== null && totalParkingFee !== null && totalOthersFee !== null && totalCost !== null && costPerPerson !== null && (
-            <div ref={resultRef} className="mt-8 p-6 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+            <div id="calculation-result-section" ref={resultRef} className="mt-8 p-6 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
               <h2 className="text-lg font-semibold text-blue-800 dark:text-blue-300 mb-4">
                 計算結果
               </h2>
@@ -666,9 +786,16 @@ export default function Home() {
                   <span className="text-gray-700 dark:text-gray-300">1人あたりの金額</span>
                   <span className="font-bold text-green-600 dark:text-green-400">{costPerPerson.toLocaleString()} 円</span>
                 </div>
-                <div className="flex justify-between border-t pt-3">
-                  <span className="text-gray-700 dark:text-gray-300"></span>
-                  <span className="font-semibold text-gray-900 dark:text-white"></span>
+                <div className="border-t pt-4 mt-4">
+                  <button
+                    onClick={handleLineShare}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#06C755] text-white font-medium rounded-md hover:bg-[#05b34c] focus:outline-none focus:ring-2 focus:ring-[#06C755] transition-colors"
+                  >
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" className="inline-block">
+                      <path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.586.39.084.922.258 1.057.592.12.3.077.769.038 1.073-.13.993-.566 3.973-.642 4.51-.087.613.167.56.356.37 1.258-1.257 5.786-5.836 7.893-8.28 2.062-2.316 3.262-4.57 3.262-6.851z"/>
+                    </svg>
+                    LINEで結果を共有する
+                  </button>
                 </div>
               </div>
             </div>
