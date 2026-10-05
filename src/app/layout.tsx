@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { GoogleAnalytics } from "@next/third-parties/google"; // 👈 GA4用のインポートを追加
+import { GoogleTagManager } from "@next/third-parties/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,8 +23,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // GA ID を直接指定
-  const gaId = "G-69W5NFMGPJ";
+  const gtmId = "GTM-P5D8X7QJ";
 
   return (
     <html lang="ja">
@@ -33,8 +32,7 @@ export default function RootLayout({
       >
         {children}
 
-        {/* 👈 bodyの閉じタグ直前に配置（IDが存在する場合のみ読み込みます） */}
-        {gaId && <GoogleAnalytics gaId={gaId} />}
+        {gtmId && <GoogleTagManager gtmId={gtmId} />}
       </body>
     </html>
   );
