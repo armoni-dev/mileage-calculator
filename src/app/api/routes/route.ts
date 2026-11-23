@@ -10,6 +10,8 @@ type GoogleRoute = {
   distanceMeters?: number;
   duration?: string;
   description?: string;
+  avoidTolls?: boolean;
+  avoidHighways?: boolean;
   polyline?: {
     encodedPolyline?: string;
   };
@@ -194,7 +196,12 @@ export async function POST(request: Request) {
             typeof route.distanceMeters === "number" &&
             route.distanceMeters > 0 &&
             typeof route.polyline?.encodedPolyline === "string",
-          );
+          )
+          .map((route) => ({
+            ...route,
+            avoidTolls: modifiers.avoidTolls,
+            avoidHighways: modifiers.avoidHighways,
+          }));
       } catch {
         return [];
       }
@@ -214,14 +221,18 @@ export async function POST(request: Request) {
       }
     }
 
-    const routes = uniqueGoogleRoutes.slice(0, 10).map((route, index) => ({
-      id: String(index),
-      description: route.description || `候補 ${index + 1}`,
-      distanceKm: Math.round((route.distanceMeters! / 1000) * 10) / 10,
-      duration: route.duration ?? null,
-      tollFeeYen: getEstimatedToll(route),
-      encodedPolyline: route.polyline!.encodedPolyline!,
-    }));
+    const routes = uniqueGoogleRoutes.slice(0, 10).map((route, index) => {
+      const estimatedToll = getEstimatedToll(route);
+      const tollFeeYen = (route.avoidTolls || route.avoidHighways) ? 0 : (estimatedToll ?? 0);
+      return {
+        id: String(index),
+        description: route.description || `候補 ${index + 1}`,
+        distanceKm: Math.round((route.distanceMeters! / 1000) * 10) / 10,
+        duration: route.duration ?? null,
+        tollFeeYen,
+        encodedPolyline: route.polyline!.encodedPolyline!,
+      };
+    });
 
     if (routes.length === 0) {
       return NextResponse.json(

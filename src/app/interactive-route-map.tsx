@@ -12,14 +12,17 @@ export type RouteCandidate = {
 };
 
 export type MapPoint = { lat: number; lng: number };
-export type MapTarget = "origin" | "destination" | `via-${number}`;
 type GoogleMap = {
-  fitBounds(bounds: GoogleLatLngBounds): void;
-  addListener(eventName: "click", listener: (event: GoogleMapMouseEvent) => void): { remove(): void };
+  fitBounds(bounds: GoogleLatLngBounds, padding?: number | { top?: number; right?: number; bottom?: number; left?: number }): void;
   panTo(latLng: MapPoint): void;
+  setCenter(latLng: MapPoint): void;
   setZoom(zoom: number): void;
+  getZoom(): number | undefined;
+  addListener(
+    eventName: "click",
+    listener: (event: { latLng: { lat(): number; lng(): number } | null }) => void,
+  ): { remove(): void };
 };
-type GoogleMapMouseEvent = { latLng?: { lat(): number; lng(): number } };
 type GooglePolyline = {
   setMap(map: GoogleMap | null): void;
   addListener(eventName: "click", listener: () => void): { remove(): void };
@@ -29,7 +32,6 @@ type GoogleLatLngBounds = {
 };
 type GoogleMarker = {
   setMap(map: GoogleMap | null): void;
-  setPosition(position: MapPoint): void;
   setTitle(title: string): void;
 };
 type GooglePlacePrediction = {
@@ -56,14 +58,47 @@ export type PlaceAutocompletePrediction = {
   secondaryText: string;
 };
 
+export type GoogleGeocoderResult = {
+  geometry: {
+    location: {
+      lat(): number;
+      lng(): number;
+    };
+  };
+  formatted_address: string;
+};
+
+type GoogleGeocoder = {
+  geocode(
+    request: { address: string } | { location: MapPoint },
+    callback: (results: GoogleGeocoderResult[] | null, status: string) => void
+  ): void;
+};
+
 type GoogleMapsApi = {
   importLibrary(name: "places"): Promise<GooglePlacesApi>;
+  importLibrary(name: "geocoding"): Promise<GoogleGeocoderApi>;
+  event?: {
+    addListenerOnce(
+      instance: unknown,
+      eventName: string,
+      handler: (...args: unknown[]) => void,
+    ): { remove(): void };
+  };
+  MapTypeControlStyle: {
+    DEFAULT: number;
+    DROPDOWN_MENU: number;
+    HORIZONTAL_BAR: number;
+  };
   Map: new (
     element: HTMLElement,
     options: {
       center: MapPoint;
       zoom: number;
       mapTypeControl: boolean;
+      mapTypeControlOptions?: {
+        style?: number;
+      };
       streetViewControl: boolean;
       fullscreenControl: boolean;
       zoomControl: boolean;
@@ -76,9 +111,20 @@ type GoogleMapsApi = {
     strokeOpacity: number;
     strokeWeight: number;
     zIndex: number;
+    clickable?: boolean;
   }) => GooglePolyline;
-  Marker: new (options: { map: GoogleMap; position: MapPoint; title: string   }) => GoogleMarker;
+  Marker: new (options: {
+    map: GoogleMap;
+    position: MapPoint;
+    title: string;
+    clickable?: boolean;
+  }) => GoogleMarker;
   LatLngBounds: new () => GoogleLatLngBounds;
+  Geocoder: new () => GoogleGeocoder;
+};
+
+type GoogleGeocoderApi = {
+  Geocoder: new () => GoogleGeocoder;
 };
 
 declare global {
@@ -151,6 +197,224 @@ export async function fetchPlacePredictions(
   });
 }
 
+export async function geocodeAddress(
+  apiKey: string,
+  address: string,
+): Promise<MapPoint | null> {
+  await loadGoogleMaps(apiKey);
+  const maps = window.google?.maps;
+  if (!maps) throw new Error("Google Maps JavaScript API is unavailable");
+
+  return new Promise((resolve) => {
+    const geocoder = new maps.Geocoder();
+    geocoder.geocode({ address }, (results, status) => {
+      if (status === "OK" && results && results[0]?.geometry?.location) {
+        const loc = results[0].geometry.location;
+        resolve({ lat: loc.lat(), lng: loc.lng() });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+export async function reverseGeocodePoint(
+  apiKey: string,
+  point: MapPoint,
+): Promise<string> {
+  await loadGoogleMaps(apiKey);
+  const maps = window.google?.maps;
+  if (!maps) throw new Error("Google Maps JavaScript API is unavailable");
+
+  return new Promise((resolve, reject) => {
+    const geocoder = new maps.Geocoder();
+    geocoder.geocode({ location: point }, (results, status) => {
+      const address = results?.[0]?.formatted_address;
+      if (status === "OK" && address) {
+        resolve(address);
+      } else {
+        reject(new Error(`Reverse geocoding failed: ${status}`));
+      }
+    });
+  });
+}
+
+export function MapLocationPicker({
+  apiKey,
+  initialPoint,
+  title,
+  onSelect,
+  onClose,
+}: {
+  apiKey: string;
+  initialPoint: MapPoint | null;
+  title: string;
+  onSelect: (address: string, point: MapPoint) => void;
+  onClose: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<GoogleMarker | null>(null);
+  const initialPointRef = useRef(initialPoint);
+  const [map, setMap] = useState<GoogleMap | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [selectionError, setSelectionError] = useState("");
+  const [isResolving, setIsResolving] = useState(false);
+
+  useEffect(() => {
+    if (!apiKey) {
+      setLoadError("地図を表示するにはGoogle Maps APIキーの設定が必要です。");
+      return;
+    }
+
+    let cancelled = false;
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.google?.maps) return;
+        const defaultCenter = { lat: 35.6812, lng: 139.7671 };
+        const defaultZoom = 6;
+        const point = initialPointRef.current ?? defaultCenter;
+        const zoom = initialPointRef.current ? 15 : defaultZoom;
+
+        const mapInstance = new window.google.maps.Map(containerRef.current, {
+          center: point,
+          zoom,
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            style: window.google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+          },
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+        });
+        setMap(mapInstance);
+
+        if (!initialPointRef.current && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              if (cancelled) return;
+              const userPos = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              };
+              mapInstance.setCenter(userPos);
+              mapInstance.setZoom(14);
+            },
+            (error) => {
+              console.warn("Geolocation failed or denied, keeping default center:", error);
+            },
+            {
+              timeout: 10000,
+              maximumAge: 60000,
+            },
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to load Google Maps location picker", error);
+        if (!cancelled) setLoadError("Googleマップを読み込めませんでした。API設定をご確認ください。");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey]);
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!map || !initialPoint) return;
+    map.panTo(initialPoint);
+    map.setZoom(15);
+  }, [initialPoint, map]);
+
+  useEffect(() => {
+    const maps = window.google?.maps;
+    if (!map || !maps) return;
+
+    if (initialPoint) {
+      markerRef.current = new maps.Marker({
+        map,
+        position: initialPoint,
+        title: "選択中の位置",
+        clickable: false,
+      });
+    }
+
+    const listener = map.addListener("click", async ({ latLng }) => {
+      if (!latLng || isResolving) return;
+      const point = { lat: latLng.lat(), lng: latLng.lng() };
+      setSelectionError("");
+      markerRef.current?.setMap(null);
+      markerRef.current = new maps.Marker({
+        map,
+        position: point,
+        title: "選択した位置",
+        clickable: false,
+      });
+
+      setIsResolving(true);
+      try {
+        const address = await reverseGeocodePoint(apiKey, point);
+        onSelect(address, point);
+      } catch (error) {
+        console.error("Failed to resolve selected map location", error);
+        setSelectionError("住所を取得できませんでした。別の位置を選択してください。");
+      } finally {
+        setIsResolving(false);
+      }
+    });
+
+    return () => {
+      listener.remove();
+      markerRef.current?.setMap(null);
+      markerRef.current = null;
+    };
+  }, [map, initialPoint, apiKey, isResolving, onSelect]);
+
+  return (
+    <section
+      ref={wrapperRef}
+      className="mt-1 rounded-lg bg-white p-3 shadow-sm dark:bg-zinc-900"
+      aria-label={title}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-800"
+        >
+          閉じる
+        </button>
+      </div>
+      <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+        {isResolving ? "住所を取得中..." : "地図をタップして位置を指定してください。"}
+      </p>
+      <div
+        ref={containerRef}
+        role="region"
+        aria-label="位置選択用の地図"
+        className="h-72 w-full rounded-md sm:h-80"
+      />
+      {(loadError || selectionError) && (
+        <p role="alert" className="mt-2 text-sm text-red-500">
+          {loadError || selectionError}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function decodePolyline(encoded: string): MapPoint[] {
   const points: MapPoint[] = [];
   let index = 0;
@@ -191,113 +455,73 @@ export default function InteractiveRouteMap({
   routes,
   selectedRouteId,
   onSelectRoute,
-  mapTarget,
-  onPickLocation,
   locations,
+  focusPoint,
   apiKey,
 }: {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   onSelectRoute: (route: RouteCandidate) => void;
-  mapTarget: MapTarget | null;
-  onPickLocation: (target: MapTarget, point: MapPoint) => void;
-  locations: Array<{ target: MapTarget; point: MapPoint; title: string }>;
+  locations: Array<{ point: MapPoint; title: string }>;
+  focusPoint: MapPoint | null;
   apiKey: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const routesRef = useRef(routes);
-  const fittedRoutesRef = useRef<RouteCandidate[] | null>(null);
   const onSelectRouteRef = useRef(onSelectRoute);
-  const onPickLocationRef = useRef(onPickLocation);
-  const mapTargetRef = useRef(mapTarget);
   const [map, setMap] = useState<GoogleMap | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [currentLocation, setCurrentLocation] = useState<MapPoint | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
-
-  const handlePanToCurrentLocation = () => {
-    const maps = window.google?.maps;
-    if (!map || !maps) return;
-    if (!navigator.geolocation) {
-      setLoadError("このブラウザーでは現在地を取得できません。");
-      return;
-    }
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setIsLocating(false);
-        const point = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-        setCurrentLocation(point);
-        map.panTo(point);
-        map.setZoom(15);
-      },
-      (error) => {
-        setIsLocating(false);
-        console.warn("Failed to get current location", error);
-        setLoadError("現在地を取得できませんでした。位置情報の許可をご確認ください。");
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
-  };
 
   useEffect(() => {
     routesRef.current = routes;
     onSelectRouteRef.current = onSelectRoute;
-    onPickLocationRef.current = onPickLocation;
-    mapTargetRef.current = mapTarget;
-  }, [routes, onSelectRoute, onPickLocation, mapTarget]);
+  }, [routes, onSelectRoute]);
 
   useEffect(() => {
     if (!apiKey) return;
 
     let cancelled = false;
 
-    const getInitialCenter = (): Promise<{ center: MapPoint; zoom: number }> => {
-      return new Promise((resolve) => {
-        if (!navigator.geolocation) {
-          resolve({ center: { lat: 35.6812, lng: 139.7671 }, zoom: 6 });
-          return;
-        }
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !containerRef.current || !window.google?.maps) return;
 
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            resolve({
-              center: {
+        const initialCenter = { lat: 35.6812, lng: 139.7671 };
+        const initialZoom = 6;
+
+        const mapInstance = new window.google.maps.Map(containerRef.current, {
+          center: initialCenter,
+          zoom: initialZoom,
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            style: window.google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+          },
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+        });
+        setMap(mapInstance);
+
+        if (routesRef.current.length === 0 && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              if (cancelled) return;
+              const userPos = {
                 lat: position.coords.latitude,
                 lng: position.coords.longitude,
-              },
-              zoom: 14,
-            });
-          },
-          (error) => {
-            console.warn("Geolocation failed or denied, falling back to default.", error);
-            resolve({ center: { lat: 35.6812, lng: 139.7671 }, zoom: 6 });
-          },
-          {
-            timeout: 10000,
-            maximumAge: 60000,
-          }
-        );
-      });
-    };
-
-    loadGoogleMaps(apiKey)
-      .then(async () => {
-        if (cancelled || !containerRef.current || !window.google?.maps) return;
-        const { center, zoom } = await getInitialCenter();
-        if (cancelled || !containerRef.current || !window.google?.maps) return;
-
-        setMap(new window.google.maps.Map(containerRef.current, {
-          center,
-          zoom,
-          mapTypeControl: true,
-          streetViewControl: true,
-          fullscreenControl: true,
-          zoomControl: true,
-        }));
+              };
+              mapInstance.setCenter(userPos);
+              mapInstance.setZoom(14);
+            },
+            (error) => {
+              console.warn("Geolocation failed or denied, keeping default center:", error);
+            },
+            {
+              timeout: 10000,
+              maximumAge: 60000,
+            },
+          );
+        }
       })
       .catch((error: unknown) => {
         console.error("Failed to load Google Maps", error);
@@ -321,25 +545,15 @@ export default function InteractiveRouteMap({
     let hasPoints = false;
 
     try {
-      listeners.push(map.addListener("click", (event) => {
-        const point = event.latLng;
-        const target = mapTargetRef.current;
-        if (point && target) {
-          onPickLocationRef.current(target, { lat: point.lat(), lng: point.lng() });
-        }
-      }));
-
       locations.forEach(({ point, title }) => {
-        markers.push(new maps.Marker({ map, position: point, title }));
-      });
-
-      if (currentLocation) {
         markers.push(new maps.Marker({
           map,
-          position: currentLocation,
-          title: "現在地",
+          position: point,
+          title,
         }));
-      }
+        bounds.extend(point);
+        hasPoints = true;
+      });
 
       routes.forEach((route) => {
         const path = decodePolyline(route.encodedPolyline);
@@ -369,9 +583,8 @@ export default function InteractiveRouteMap({
       });
     }
 
-    if (hasPoints && fittedRoutesRef.current !== routes) {
-      map.fitBounds(bounds);
-      fittedRoutesRef.current = routes;
+    if (hasPoints) {
+      map.fitBounds(bounds, { top: 24, right: 24, bottom: 24, left: 24 });
     }
 
     return () => {
@@ -380,7 +593,13 @@ export default function InteractiveRouteMap({
       polylines.forEach((polyline) => polyline.setMap(null));
       markers.forEach((marker) => marker.setMap(null));
     };
-  }, [map, routes, selectedRouteId, locations, currentLocation]);
+  }, [map, routes, selectedRouteId, locations]);
+
+  useEffect(() => {
+    if (!map || !focusPoint || routes.length > 0) return;
+    map.panTo(focusPoint);
+    map.setZoom(15);
+  }, [map, focusPoint, routes]);
 
   const displayError = apiKey
     ? loadError
@@ -392,23 +611,8 @@ export default function InteractiveRouteMap({
         ref={containerRef}
         role="region"
         aria-label="ルート候補の地図"
-        className="h-80 w-full overflow-hidden rounded-md border border-gray-300 dark:border-gray-600"
+        className="h-80 w-full overflow-hidden rounded-md"
       />
-      <div className="absolute bottom-7 left-2 z-10">
-        <button
-          type="button"
-          onClick={handlePanToCurrentLocation}
-          disabled={isLocating}
-          className="flex items-center gap-1.5 rounded-md bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-md hover:bg-gray-50 border border-gray-300 dark:bg-zinc-800 dark:border-zinc-700 dark:text-gray-200 dark:hover:bg-zinc-700 disabled:opacity-50"
-          title="現在地を表示"
-        >
-          <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          {isLocating ? "取得中..." : "現在地"}
-        </button>
-      </div>
       {displayError && (
         <p role="alert" className="mt-2 text-sm text-red-500">
           {displayError}
