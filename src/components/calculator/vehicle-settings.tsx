@@ -40,7 +40,7 @@ export default function VehicleSettings({
   onRemoveDiscountTarget,
 }: Props) {
   return (
-    <div className="px-4 py-8 bg-gray-100 dark:bg-zinc-800 rounded-lg space-y-4 mb-4">
+    <div className="px-4 py-8 bg-gray-100 dark:bg-zinc-800 rounded-lg space-y-4 mb-6">
       <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 text-center mt-2 mb-8">
         車両・精算条件設定
       </h2>
@@ -56,7 +56,7 @@ export default function VehicleSettings({
           min={50}
           max={250}
           step={1}
-          unit="円"
+          unit="円/L"
           placeholder="例: 150"
           defaultValue="150"
           error={Boolean(errors.gasPrice)}
@@ -138,7 +138,7 @@ export default function VehicleSettings({
                     onRemoveDiscountTarget(index);
                   }
                 }}
-                className="h-10 w-10 bg-white text-red-500 hover:bg-white hover:text-red-700 dark:bg-white dark:hover:bg-white"
+                className="h-10 w-10 border-0 bg-white text-red-500 hover:bg-white hover:text-red-700 dark:bg-white dark:hover:bg-white"
                 aria-label={
                   discountRate !== ""
                     ? `割引対象者 ${index + 1} をクリア`

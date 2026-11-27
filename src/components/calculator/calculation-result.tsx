@@ -22,9 +22,9 @@ export default function CalculationResult({ result, resultRef, onLineShare }: Pr
         <div className="space-y-3 max-w-md mx-auto">
           {hasStandardParticipants && (
             <div className="flex justify-between items-center bg-white/20 px-4 py-3 rounded-xl">
-              <span className="text-lg sm:text-xl font-bold">割引非対象者</span>
+              <span className="text-lg sm:text-xl font-bold">割引対象者以外</span>
               <span className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-                {result.standardCostPerPerson.toLocaleString()}
+                {result.standardCostPerPersonCeil.toLocaleString()}
                 <span className="text-xl sm:text-2xl font-bold ml-1">円</span>
               </span>
             </div>
@@ -35,7 +35,7 @@ export default function CalculationResult({ result, resultRef, onLineShare }: Pr
                 割引対象者 {index + 1}（{participant.discountApplied ? `${participant.discountRate}%割引` : "1人のため割引なし"}）
               </span>
               <span className="text-xl sm:text-2xl font-bold tracking-tight">
-                {participant.amount.toLocaleString()}
+                {participant.amountCeil.toLocaleString()}
                 <span className="text-base font-semibold ml-1">円</span>
               </span>
             </div>
@@ -43,7 +43,7 @@ export default function CalculationResult({ result, resultRef, onLineShare }: Pr
           {!hasStandardParticipants && result.discountedParticipantCosts.length === 0 && (
             <div className="text-center py-2">
               <div className="text-4xl sm:text-5xl font-extrabold tracking-tight">
-                {result.standardCostPerPerson.toLocaleString()}
+                {result.standardCostPerPersonCeil.toLocaleString()}
                 <span className="text-2xl sm:text-3xl font-bold ml-1">円</span>
               </div>
             </div>

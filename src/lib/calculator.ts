@@ -1,3 +1,8 @@
+import {
+  compressToEncodedURIComponent,
+  decompressFromEncodedURIComponent,
+} from "lz-string";
+
 export type OtherInput = { name: string; amount: string };
 export type CalculatedOther = { name: string; amount: number };
 export type CalculatorInputs = {
@@ -7,6 +12,9 @@ export type CalculatorInputs = {
   discountRates: string[];
   routes: string[];
   tollFees: string[];
+  origins: string[];
+  destinations: string[];
+  routeIntermediates: string[][];
   others: OtherInput[];
 };
 
@@ -26,9 +34,11 @@ export type CalculationResult = {
   passengerCount: number;
   standardParticipantCount: number;
   standardCostPerPerson: number;
+  standardCostPerPersonCeil: number;
   discountedParticipantCosts: {
     discountRate: number;
     amount: number;
+    amountCeil: number;
     discountApplied: boolean;
   }[];
   routeDetails: RouteDetail[];
@@ -82,6 +92,9 @@ export function createEmptyCalculatorInputs(): CalculatorInputs {
     discountRates: [""],
     routes: [""],
     tollFees: [""],
+    origins: [""],
+    destinations: [""],
+    routeIntermediates: [[]],
     others: DEFAULT_OTHERS.map((other) => ({ ...other })),
   };
 }
@@ -221,9 +234,11 @@ export function validateAndCalculate(inputs: CalculatorInputs): {
       passengerCount: passengers,
       standardParticipantCount: passengers - discountRates.length,
       standardCostPerPerson: Math.round(standardCostPerPerson * 10) / 10,
+      standardCostPerPersonCeil: Math.ceil(standardCostPerPerson),
       discountedParticipantCosts: discountedParticipantCosts.map((participant) => ({
         ...participant,
         amount: Math.round(participant.amount * 10) / 10,
+        amountCeil: Math.ceil(participant.amount),
       })),
       routeDetails,
     },
@@ -233,7 +248,11 @@ export function validateAndCalculate(inputs: CalculatorInputs): {
 export function parseSharedData(data: string | null): RestoredData | null {
   if (!data) return null;
   try {
-    const parsed: unknown = JSON.parse(decodeURIComponent(atob(data)));
+    const decompressed = decompressFromEncodedURIComponent(data);
+    if (!decompressed) {
+      throw new TypeError("Shared calculator data could not be decompressed");
+    }
+    const parsed: unknown = JSON.parse(decompressed);
     if (!isRecord(parsed)) throw new TypeError("Shared calculator data must be an object");
 
     const getString = (key: string): string => {
@@ -265,6 +284,25 @@ export function parseSharedData(data: string | null): RestoredData | null {
 
     const routes = getStringArray("routes");
     const tollFees = getStringArray("tollFees");
+    const origins = getStringArray("origins");
+    const destinations = getStringArray("destinations");
+
+    let routeIntermediates: string[][] = [[]];
+    const intermediatesValue = parsed.routeIntermediates;
+    if (intermediatesValue !== undefined) {
+      if (
+        !Array.isArray(intermediatesValue) ||
+        !intermediatesValue.every(
+          (item) => Array.isArray(item) && item.every((str) => typeof str === "string"),
+        )
+      ) {
+        throw new TypeError('Shared calculator field "routeIntermediates" must be an array of string arrays');
+      }
+      routeIntermediates = intermediatesValue as string[][];
+    } else {
+      routeIntermediates = routes.map(() => []);
+    }
+
     let discountRates = [""];
     if (parsed.discountRates !== undefined) {
       if (!Array.isArray(parsed.discountRates) || !parsed.discountRates.every((rate) => typeof rate === "string")) {
@@ -275,7 +313,13 @@ export function parseSharedData(data: string | null): RestoredData | null {
       const legacyDiscount = getString("driverDiscount");
       discountRates = [legacyDiscount];
     }
-    const routeCount = Math.max(routes.length, tollFees.length);
+    const routeCount = Math.max(
+      routes.length,
+      tollFees.length,
+      origins.length,
+      destinations.length,
+      routeIntermediates.length,
+    );
     const inputs: CalculatorInputs = {
       gasPrice: getString("gasPrice"),
       fuelEfficiency: getString("fuelEfficiency"),
@@ -283,6 +327,12 @@ export function parseSharedData(data: string | null): RestoredData | null {
       discountRates,
       routes: [...routes, ...Array(Math.max(0, routeCount - routes.length)).fill("")],
       tollFees: [...tollFees, ...Array(Math.max(0, routeCount - tollFees.length)).fill("")],
+      origins: [...origins, ...Array(Math.max(0, routeCount - origins.length)).fill("")],
+      destinations: [...destinations, ...Array(Math.max(0, routeCount - destinations.length)).fill("")],
+      routeIntermediates: [
+        ...routeIntermediates,
+        ...Array(Math.max(0, routeCount - routeIntermediates.length)).fill([]),
+      ],
       others,
     };
     return { inputs, result: validateAndCalculate(inputs).result };
@@ -293,6 +343,5 @@ export function parseSharedData(data: string | null): RestoredData | null {
 }
 
 export function encodeSharedData(inputs: CalculatorInputs): string {
-  const encoded = btoa(encodeURIComponent(JSON.stringify(inputs)));
-  return encoded;
+  return compressToEncodedURIComponent(JSON.stringify(inputs));
 }
